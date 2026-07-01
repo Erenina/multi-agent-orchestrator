@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Multi-Agent Orchestrator — Planlayıcı + Yürütücü</title>
+  <style>
+    /* ---- Tasarım token'ları (elle yazılmış CSS, CDN yok) ---- */
+    :root {
+      --bg: #f7f8fa;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --fg: #0f172a;
+      --muted: #64748b;
+      --accent: #4f46e5;
+      --accent-soft: #eef2ff;
+      --ok: #059669;
+      --ok-soft: #ecfdf5;
+      --err: #dc2626;
+      --wait: #94a3b8;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font-family: var(--sans); line-height: 1.5;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 20px; background: var(--card); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .logo {
+      display: grid; place-items: center; width: 40px; height: 40px; flex: none;
+      background: var(--accent); border-radius: 11px; font-size: 20px;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+    header p { font-size: 12.5px; margin: 0; color: var(--muted); }
+    .status {
+      font-size: 12px; color: var(--muted); background: var(--bg);
+      padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+    }
+    .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #cbd5e1; margin-right: 6px; vertical-align: middle; }
+    .status.online .dot { background: var(--ok); }
+    .status.offline .dot { background: var(--err); }
+
+    main { max-width: 780px; margin: 0 auto; padding: 22px 16px 80px; }
+
+    /* ---- Soru kutusu ---- */
+    .composer { display: flex; gap: 8px; }
+    .composer input {
+      flex: 1; padding: 13px 15px; font-size: 15px; font-family: inherit;
+      border: 1px solid var(--border); border-radius: 11px; background: var(--card);
+      outline: none;
+    }
+    .composer input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .composer button {
+      padding: 0 20px; font-size: 15px; font-weight: 600; font-family: inherit;
+      color: #fff; background: var(--accent); border: none; border-radius: 11px; cursor: pointer;
+    }
+    .composer button:disabled { opacity: .5; cursor: not-allowed; }
+
+    .examples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .chip {
+      font-size: 12.5px; font-family: inherit; color: var(--muted); cursor: pointer;
+      background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px;
+    }
+    .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ---- Plan panosu (step kartları) ---- */
+    .board { margin-top: 22px; display: flex; flex-direction: column; gap: 10px; }
+
+    .divider {
+      display: flex; align-items: center; gap: 10px; margin: 6px 0;
+      font-size: 12.5px; color: var(--accent); font-weight: 600;
+    }
+    .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+    .step-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 14px; animation: reveal .2s ease-out both;
+      border-left: 4px solid var(--wait);
+    }
+    .step-card.running { border-left-color: var(--accent); }
+    .step-card.done { border-left-color: var(--ok); }
+
+    .step-head { display: flex; align-items: center; gap: 9px; }
+    .step-badge {
+      flex: none; font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      background: #f1f5f9; color: var(--wait);
+    }
+    .step-card.running .step-badge { background: var(--accent-soft); color: var(--accent); }
+    .step-card.done .step-badge { background: var(--ok-soft); color: var(--ok); }
+    .step-goal { font-size: 14.5px; font-weight: 600; flex: 1; min-width: 0; }
+
+    .step-log { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .step-log .tool code {
+      font-family: var(--mono); font-size: 12.5px; background: var(--accent-soft);
+      color: var(--accent); padding: 3px 7px; border-radius: 7px; word-break: break-all;
+    }
+    .step-log details { font-size: 12.5px; }
+    .step-log summary { color: var(--muted); cursor: pointer; user-select: none; }
+    .step-log pre {
+      margin: 6px 0 0; padding: 9px 11px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap;
+      word-break: break-word; max-height: 160px; overflow: auto; color: #334155;
+    }
+    .step-result {
+      margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);
+      font-size: 13.5px; color: #334155;
+    }
+
+    /* ---- Nihai cevap ---- */
+    .answer {
+      border: 1px solid var(--border); border-left: 4px solid var(--ok);
+      background: var(--card); border-radius: 12px; padding: 16px 18px; animation: reveal .25s ease-out both;
+    }
+    .answer .head { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--ok); margin-bottom: 8px; }
+    .answer .content { font-size: 15px; word-wrap: break-word; }
+    .answer .content a { color: var(--accent); word-break: break-all; }
+
+    .error-card { border: 1px solid var(--border); border-left: 4px solid var(--err);
+      background: var(--card); border-radius: 12px; padding: 14px 16px; color: var(--err); }
+
+    .thinking { display: none; align-items: center; gap: 9px; color: var(--muted); font-size: 14px; margin-top: 14px; }
+    .thinking.on { display: flex; }
+    .thinking .spin { width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .8s linear infinite; }
+
+    .hint { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+
+    @keyframes reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🧭</span>
+      <div>
+        <h1>Multi-Agent Orchestrator</h1>
+        <p>Planlayıcı görevi adımlara böler, Yürütücü her adımı gerçekleştirir</p>
+      </div>
+    </div>
+    <span id="status" class="status"><span class="dot"></span>bağlanıyor…</span>
+  </header>
+
+  <main>
+    <form id="form" class="composer">
+      <input id="q" type="text" autocomplete="off"
+             placeholder="Örn: 2024 Nobel Barış Ödülü'nü kim kazandı ve hangi ülkeden?" />
+      <button id="send" type="submit">Çalıştır</button>
+    </form>
+
+    <div class="examples" id="examples">
+      <button type="button" class="chip">2024 Nobel Barış Ödülü'nü kim kazandı ve hangi ülkeden?</button>
+      <button type="button" class="chip">127 çarpı 8'i hesapla, sonra sonuca 15 ekle</button>
+      <button type="button" class="chip">Python'un en son kararlı sürümünü bul ve çıkış yılını söyle</button>
+    </div>
+
+    <section id="board" class="board" aria-live="polite"></section>
+    <div id="thinking" class="thinking"><span class="spin"></span> agent'lar çalışıyor…</div>
+    <p class="hint" id="hint">Plan adımları kartlar halinde burada belirecek; her kartı açarak o adımdaki araç çağrılarını görebilirsin.</p>
+  </main>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const board = $('#board');
+    const cards = new Map(); // step id -> DOM elemanı
+    let es = null;
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function linkify(s) {
+      return escapeHtml(s).replace(/(https?:\/\/[^\s<]+)/g,
+        '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    }
+
+    function addDivider(text) {
+      const div = document.createElement('div');
+      div.className = 'divider';
+      div.textContent = text;
+      board.appendChild(div);
+    }
+
+    function addStepCard(step) {
+      const div = document.createElement('div');
+      div.className = 'step-card';
+      div.innerHTML = `
+        <div class="step-head">
+          <span class="step-badge">⏳ bekliyor</span>
+          <span class="step-goal">${escapeHtml(step.goal)}</span>
+        </div>
+        <div class="step-log"></div>
+        <div class="step-result" style="display:none"></div>`;
+      board.appendChild(div);
+      cards.set(step.id, div);
+      return div;
+    }
+
+    function setStepStatus(id, status) {
+      const card = cards.get(id);
+      if (!card) return;
+      card.classList.remove('running', 'done');
+      const badge = card.querySelector('.step-badge');
+      if (status === 'running') {
+        card.classList.add('running');
+        badge.textContent = '▶️ çalışıyor';
+      } else if (status === 'done') {
+        card.classList.add('done');
+        badge.textContent = '✅ tamamlandı';
+      }
+      card.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    function addToolLog(id, kind, html) {
+      const card = cards.get(id);
+      if (!card) return;
+      const row = document.createElement('div');
+      row.className = kind;
+      row.innerHTML = html;
+      card.querySelector('.step-log').appendChild(row);
+    }
+
+    function setStepResult(id, text) {
+      const card = cards.get(id);
+      if (!card) return;
+      const box = card.querySelector('.step-result');
+      box.style.display = 'block';
+      box.textContent = text;
+    }
+
+    function renderEvent(ev) {
+      if (ev.type === 'plan') {
+        ev.steps.forEach(addStepCard);
+      } else if (ev.type === 'step_start') {
+        setStepStatus(ev.id, 'running');
+      } else if (ev.type === 'tool_call') {
+        const args = Object.entries(ev.args || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
+        addToolLog(ev.id, 'tool', `🔧 <code>${escapeHtml(ev.name + '(' + args + ')')}</code>`);
+      } else if (ev.type === 'tool_result') {
+        addToolLog(ev.id, 'tool-result',
+          `<details><summary>↳ sonuç (${escapeHtml(ev.name)})</summary><pre>${escapeHtml(ev.result)}</pre></details>`);
+      } else if (ev.type === 'step_done') {
+        setStepStatus(ev.id, 'done');
+        setStepResult(ev.id, ev.result);
+      } else if (ev.type === 'replan') {
+        addDivider('🔁 Planlayıcı planı güncelledi');
+        ev.steps.forEach(addStepCard);
+      } else if (ev.type === 'final') {
+        const div = document.createElement('div');
+        div.className = 'answer';
+        div.innerHTML = `<div class="head">🏁 Nihai Cevap</div><div class="content">${linkify(ev.answer).replace(/\n/g, '<br>')}</div>`;
+        board.appendChild(div);
+        div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      } else if (ev.type === 'error') {
+        const div = document.createElement('div');
+        div.className = 'error-card';
+        div.textContent = '⚠️ ' + ev.message;
+        board.appendChild(div);
+      }
+    }
+
+    function setRunning(on) {
+      $('#send').disabled = on;
+      $('#thinking').classList.toggle('on', on);
+    }
+
+    function ask(q) {
+      if (!q || es) return;
+      board.innerHTML = '';
+      cards.clear();
+      $('#examples').style.display = 'none';
+      $('#hint').style.display = 'none';
+      setRunning(true);
+
+      es = new EventSource('/ask?q=' + encodeURIComponent(q));
+      es.onmessage = (e) => {
+        const ev = JSON.parse(e.data);
+        if (ev.type === 'done') { finish(); return; }
+        renderEvent(ev);
+        if (ev.type === 'final' || ev.type === 'error') finish();
+      };
+      es.onerror = () => finish();
+    }
+
+    function finish() {
+      if (es) { es.close(); es = null; }
+      setRunning(false);
+    }
+
+    $('#form').addEventListener('submit', (e) => { e.preventDefault(); ask($('#q').value.trim()); });
+    document.querySelectorAll('.chip').forEach(c =>
+      c.addEventListener('click', () => { $('#q').value = c.textContent; ask(c.textContent); }));
+
+    async function health() {
+      const el = $('#status');
+      try {
+        const r = await fetch('/health');
+        if (!r.ok) throw 0;
+        el.className = 'status online'; el.innerHTML = '<span class="dot"></span>çevrimiçi';
+      } catch {
+        el.className = 'status offline'; el.innerHTML = '<span class="dot"></span>sunucu kapalı';
+      }
+    }
+    health();
+  </script>
+</body>
+</html>
